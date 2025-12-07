@@ -1,2 +1,11 @@
 .venv
-/data_functions/raw_data/
+!/data_functions/raw_data/
+!/data_functions/clean_data/
+!/key_vault.py
+
+!/scratch_pad.py
+!/scratch_pad_samples/
+!/baseline_pmgpt2/Helpdesk.csv
+!/.env
+
+
