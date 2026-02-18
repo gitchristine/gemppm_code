@@ -1,11 +1,15 @@
 .venv
+#TODO add instructions to the README
 !/data_functions/raw_data/
 !/data_functions/clean_data/
 !/key_vault.py
 
-!/scratch_pad.py
-!/scratch_pad_samples/
+#TODO do the ablations need to be in the final Github?
+#   Oyamada - yes
+#   Other theses - ??
 !/baseline_pmgpt2/Helpdesk.csv
 !/.env
 
 
+#Outdated files TODO delete before final submission
+!/older_folder/
