@@ -160,7 +160,7 @@ class DataCleaner:
                                  df['timestamp'].dt.minute * 60 +
                                  df['timestamp'].dt.second)
 
-    
+
         case_groups = df.groupby('case_id')
         case_start = case_groups['timestamp'].transform('first')
         case_end = case_groups['timestamp'].transform('last')
@@ -183,8 +183,6 @@ class DataCleaner:
 
     def extract_activity_stats(self, df: pd.DataFrame, time_unit: str = 'days') -> pd.DataFrame:
         """
-        Compute activity statistics.
-
         Activity stats:
             avg_duration[activity]: mean duration per activity type
             std_duration[activity]: std deviation of duration per activity type
@@ -219,19 +217,16 @@ class DataCleaner:
         # Drop intermediate column
         df = df.drop(columns=['event_duration'])
 
-        print(f"  Extracted activity stats: avg_duration, std_duration per activity")
+        # print(f"  Extracted activity stats: avg_duration, std_duration per activity")
         return df
 
     def extract_time_cycle_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Extract cyclical time encoding.
-
-        Time cycle features:
+       Time cycle features:
             hour_sin: sine encoding of hour (captures cyclical nature)
             hour_cos: cosine encoding of hour
 
-        Cyclical encoding ensures that hour 23 and hour 0 are close together,
-        which raw integer encoding does not capture.
+        Cyclical encoding to ensure hours 23 and 0 are close
 
         Args:
             df: DataFrame with timestamp column
@@ -251,8 +246,6 @@ class DataCleaner:
 
     def extract_business_hours(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Determine if event occurred during business hours.
-
         is_business_hours: 1 if weekday (Mon-Fri) and 9:00-17:00, else 0.
 
         Business hours context helps the model distinguish between events
@@ -284,8 +277,6 @@ class DataCleaner:
                 More concurrent cases = slower processing.
             workload_ratio: ratio of concurrent cases to average concurrent cases.
                 Values > 1 indicate above-average load.
-
-        These features capture system-level context that affects processing times.
 
         Args:
             df: DataFrame with case_id and timestamp columns
@@ -320,11 +311,6 @@ class DataCleaner:
 
     def extract_workload_features_fast(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Compute workload features using a vectorized sweep-line approach.
-
-        This is a faster alternative to extract_workload_features for
-        large datasets. Uses sorted event boundaries and cumulative sums.
-
         Args:
             df: DataFrame with case_id and timestamp columns
 
@@ -366,7 +352,7 @@ class DataCleaner:
 
     def extract_case_dynamics(self, df: pd.DataFrame, time_unit: str = 'days') -> pd.DataFrame:
         """
-        Compute case-level dynamics.
+        TODO Compute case-level dynamics.
 
         Case dynamics:
             velocity: events_per_time_unit
@@ -456,14 +442,7 @@ class DataCleaner:
                            feature_columns: List[str], dataset_name: str,
                            output_dir: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
-        Z-score normalization: better outlier handling.
-
-        Z-score (StandardScaler) normalizes each feature to zero mean and unit
-        variance. This is preferred over min-max scaling because it handles
-        outliers better -- outliers don't compress the rest of the data into
-        a narrow range.
-
-        Fit on training data only to avoid data leakage into test set.
+        Standard Scaler
 
         Args:
             train_df: Training DataFrame
@@ -493,22 +472,6 @@ class DataCleaner:
 
 # =============================================================================
 # STEP 3: SYNTHETIC VARIATION DATASETS
-# =============================================================================
-# Generate synthetic variations for specific experimental setups.
-#
-# Assign domain IDs based on:
-#   - Entropy (low, med, high)
-#   - Case length (short, medium, long)
-#   - Process type
-#
-# Entropy-increasing transformations:
-#   transformation = random.choice([
-#       'permute',   # swap activity order
-#       'insert',    # add random activities
-#       'skip',      # skip some activities
-#       'repeat',    # repeat activities
-#       'hybrid',    # combination of the above
-#   ])
 # =============================================================================
 
 class SyntheticVariationGenerator:
@@ -548,7 +511,7 @@ class SyntheticVariationGenerator:
 
     def assign_domain_ids(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Assign domain IDs based on case properties.
+        TODO Assign domain IDs based on case properties. (Fixed vs dynamic with LLM)
 
         Domain IDs are assigned based on:
             - Entropy (low, med, high): Shannon entropy of activity distribution
@@ -760,11 +723,7 @@ class SyntheticVariationGenerator:
 # =============================================================================
 # STEP 4: EVALUATION SPLITS AND SCENARIOS
 # =============================================================================
-# Unbiased train-test split with no temporal leakage.
-# Cases are split based on their start times so that all test cases
-# begin after all training cases, preventing the model from seeing
-# future information during training.
-# =============================================================================
+
 
 class EvaluationSplitter:
     """
@@ -778,9 +737,6 @@ class EvaluationSplitter:
         """
         Unbiased train-test split (no temporal leakage).
 
-        Split is based on case start times: the earliest (1 - test_size)
-        fraction of cases go to training, the rest to testing. This ensures
-        no information from future cases leaks into the training set.
 
         Args:
             df: Event log DataFrame with case_id and timestamp
@@ -808,10 +764,9 @@ class EvaluationSplitter:
 
 
 # =============================================================================
-# PIPELINE ORCHESTRATION
+# PIPELINE CONSTRUCTION
 # =============================================================================
-# Ties all steps together into a single configurable pipeline.
-# =============================================================================
+
 
 # All numerical feature columns produced by the pipeline
 FEATURE_COLUMNS = [
@@ -829,8 +784,8 @@ FEATURE_COLUMNS = [
     'is_business_hours',
     # Workload features
     'concurrent_cases', 'workload_ratio',
-    # Case dynamics
-    'velocity', 'acceleration',
+    # # Case dynamics
+    # 'velocity', 'acceleration',
 ]
 
 
@@ -887,9 +842,6 @@ class EventLogPreprocessor:
         print(f"DATA PREPROCESSING PIPELINE - {dataset_name}")
         print("=" * 80)
 
-        # =====================================================================
-        # STEP 1: Convert XES to CSV
-        # =====================================================================
         if filepath.endswith('.xes'):
             print("\n[Step 1] Converting XES to CSV...")
             csv_path = self.converter.convert(filepath, dataset_name)
@@ -900,9 +852,7 @@ class EventLogPreprocessor:
         df = self.converter.load(filepath)
         print(f"  Loaded {len(df)} events from {df['case_id'].nunique()} cases")
 
-        # =====================================================================
-        # STEP 2: Data Cleaning and Normalization
-        # =====================================================================
+
         print("\n[Step 2] Data cleaning and normalization...")
 
         # Filter out cases <= 2 events
@@ -945,9 +895,7 @@ class EventLogPreprocessor:
         df['is_synthetic'] = 0
         df['transformation'] = 'none'
 
-        # =====================================================================
-        # STEP 4: Evaluation Splits and Scenarios
-        # =====================================================================
+
         print("\n[Step 4] Evaluation splits...")
 
         # --- Cleaned dataset split ---
@@ -1127,15 +1075,15 @@ if __name__ == "__main__":
     SYNTHETIC_DIR = "synthetic_data"    # Synthetic datasets saved separately
     RAW_CSV_DIR = "raw_csv"
 
-    print("=" * 80)
+
     print("EVENT LOG PREPROCESSING PIPELINE")
-    print("=" * 80)
+
     print(f"\nConfiguration:")
     print(f"  Data directory:      {DATA_DIR}")
     print(f"  Output directory:    {OUTPUT_DIR}")
     print(f"  Synthetic directory: {SYNTHETIC_DIR}")
     print(f"  Raw CSV directory:   {RAW_CSV_DIR}")
-    print("=" * 80)
+
 
     # Initialize preprocessor
     preprocessor = EventLogPreprocessor(
@@ -1150,21 +1098,15 @@ if __name__ == "__main__":
 
     if not datasets:
         print(f"\nNo XES files found in '{DATA_DIR}'!")
-        print(f"\nPlease add your XES files to the '{DATA_DIR}' directory and run again.")
-        print("\nExample structure:")
-        print(f"  {DATA_DIR}/")
-        print(f"    ├── dataset1.xes")
-        print(f"    ├── dataset2.xes")
-        print(f"    └── ...")
+
     else:
         print(f"\nFound {len(datasets)} XES file(s):")
         for name, path in datasets.items():
             print(f"  - {name}: {path}")
 
         # Process each dataset
-        print("\n" + "=" * 80)
-        print("STARTING PREPROCESSING")
-        print("=" * 80)
+
+        # print("STARTING PREPROCESSING")
 
         for dataset_name, filepath in datasets.items():
             try:
@@ -1185,9 +1127,9 @@ if __name__ == "__main__":
                 import traceback
                 traceback.print_exc()
 
-        print("\n" + "=" * 80)
+
         print("PREPROCESSING COMPLETE")
-        print("=" * 80)
+
         print(f"\nOutput files:")
         print(f"  - Raw CSVs:            {RAW_CSV_DIR}/")
         print(f"  - Cleaned data:        {OUTPUT_DIR}/")

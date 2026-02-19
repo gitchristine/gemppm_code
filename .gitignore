@@ -3,7 +3,7 @@
 !/data_functions/raw_data/
 !/data_functions/clean_data/
 !/key_vault.py
-
+!/baselines/
 #TODO do the ablations need to be in the final Github?
 #   Oyamada - yes
 #   Other theses - ??
