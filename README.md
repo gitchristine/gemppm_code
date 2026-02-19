@@ -1,7 +1,6 @@
-GEMPPM 
-To test this code, you need to 
-1. Install the required packages listed in requirements.txt
-2. Download the relevant BPI datasets from the websites. 
-2. Make an account on HF (TODO reconsider)
-3. 
-4. 
+[//]: # (TODO final README )
+
+The TAIA files can be found in taia_datl directory 
+The ablation files can be found in (taia_datl >> ablations) directory
+
+pipeline.py contains the code for training and ablation pipeline of the model.
