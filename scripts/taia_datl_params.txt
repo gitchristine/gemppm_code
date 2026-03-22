@@ -1,0 +1,10 @@
+--dataset bpi2012 --skip-data-prep
+--dataset bpi2012 --skip-data-prep --load-in-4bit
+--dataset bpi2017 --skip-data-prep
+--dataset bpi2017 --skip-data-prep --load-in-4bit
+--dataset bpi2020_prepaid --skip-data-prep
+--dataset bpi2020_prepaid --skip-data-prep --load-in-4bit
+--dataset bpi2020_travel --skip-data-prep
+--dataset bpi2020_travel --skip-data-prep --load-in-4bit
+--dataset bpi2020_payment --skip-data-prep
+--dataset bpi2020_payment --skip-data-prep --load-in-4bit
