@@ -1,51 +1,45 @@
 """
-FAISS-Conditioned Adaptive Fusion Gate  [*]
+Simple scalar ensemble for remaining-time fusion.
 
-TODO loss function placement?
+rt_final = β × rt_direct + (1 - β) × rt_retrieved
+
+β is a fixed scalar set in TAIADATLConfig.fusion_beta and tuned on the
+validation set.
+
+# Future work -> the parameters could be learnt based on the dataset that is being used.
 """
 
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
 
 
-class FusionGate(nn.Module):
-    def __init__(
-        self,
-        datl_dim: int = 256,
-        taia_dim: int = 256,
-        hidden_dim: int = 64,
-    ):
+class FusionGate:
+    """Stateless scalar blend of direct and retrieved remaining-time estimates.
 
-        super().__init__()
+    Args:
+        beta: Weight given to the direct (TinyLLM head) prediction.
+              Must be in [0, 1].  The retrieved (FAISS) estimate receives
+              weight (1 - beta).
+    """
 
-        # Input: dist_k (scalar) + h_datl + h_taia
-        input_dim = 1 + datl_dim + taia_dim
+    def __init__(self, beta: float = 0.5):
+        if not 0.0 <= beta <= 1.0:
+            raise ValueError(f"beta must be in [0, 1], got {beta}")
+        self.beta = beta
 
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1),
-            nn.Sigmoid(),  # α ∈ [0, 1]
-        )
-
-    def forward(
-        self,
-        dist_k: torch.Tensor,
-        h_datl: torch.Tensor,
-        h_taia: torch.Tensor,
-    ) -> torch.Tensor:
-
-        x = torch.cat([dist_k, h_datl, h_taia], dim=-1)
-        alpha = self.mlp(x)
-        return alpha
-
-    @staticmethod
     def fuse(
-        alpha: torch.Tensor,
-        p_taia: torch.Tensor,
-        p_datl: torch.Tensor,
+        self,
+        rt_direct: torch.Tensor,
+        rt_retrieved: torch.Tensor,
     ) -> torch.Tensor:
+        """Blend the two remaining-time estimates.
 
-        return alpha * p_taia + (1.0 - alpha) * p_datl
+        Args:
+            rt_direct:    (batch,) predictions from TimeHead (TinyLLM backbone).
+            rt_retrieved: (batch,) estimates from FAISS nearest-neighbour lookup.
+
+        Returns:
+            rt_final: (batch,) weighted combination.
+        """
+        return self.beta * rt_direct + (1.0 - self.beta) * rt_retrieved

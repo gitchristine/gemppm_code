@@ -1,5 +1,5 @@
 """
-FAISS Persistent Triplet Index  [*]
+FAISS Index for triplet distance
 """
 
 from __future__ import annotations
@@ -43,9 +43,11 @@ class FAISSIndex:
         else:
             self.index = faiss.IndexFlatL2(dim)
 
-        # Metadata parallel array
-        self._ids: list[str] = []  # case_id for each vector
-        self._labels: list[int] = []  # domain_id for each vector
+        # Metadata parallel arrays (one entry per stored vector)
+        self._ids: list[str] = []         # case_id for each vector
+        self._labels: list[int] = []      # domain_id for each vector
+        self._rt_buckets: list[int] = []  # RT quantile bucket (0/1/2)
+        self._rt_values: list[float] = [] # raw remaining_time for retrieval
 
         print(f"[FAISS] Initialised {index_type} index  dim={dim}")
 
@@ -58,8 +60,9 @@ class FAISSIndex:
         embeddings: np.ndarray,
         case_ids: list[str],
         domain_ids: list[int],
+        rt_buckets: Optional[list[int]] = None,
+        rt_values: Optional[list[float]] = None,
     ) -> None:
-
 
         embeddings = np.ascontiguousarray(embeddings, dtype=np.float32)
         assert embeddings.shape[1] == self.dim
@@ -69,6 +72,8 @@ class FAISSIndex:
         self.index.add(embeddings)
         self._ids.extend(case_ids)
         self._labels.extend(domain_ids)
+        self._rt_buckets.extend(rt_buckets if rt_buckets is not None else [0] * len(case_ids))
+        self._rt_values.extend(rt_values if rt_values is not None else [0.0] * len(case_ids))
 
         print(f"[FAISS] Added {len(case_ids)} vectors  (total={self.index.ntotal})")
 
@@ -78,18 +83,19 @@ class FAISSIndex:
 
     def search(
         self, query: np.ndarray, top_k: int = 5
-    ) -> tuple[np.ndarray, np.ndarray, list[str], list[int]]:
+    ) -> tuple[np.ndarray, np.ndarray, list, list, list, list]:
+        """Return (distances, indices, case_ids, domain_ids, rt_buckets, rt_values)."""
         query = np.ascontiguousarray(query, dtype=np.float32)
         distances, indices = self.index.search(query, top_k)
 
-        # Map indices to metadata
-        out_case_ids = []
-        out_domain_ids = []
+        out_case_ids, out_domain_ids, out_rt_buckets, out_rt_values = [], [], [], []
         for row in indices:
             out_case_ids.append([self._ids[i] if 0 <= i < len(self._ids) else "" for i in row])
             out_domain_ids.append([self._labels[i] if 0 <= i < len(self._labels) else -1 for i in row])
+            out_rt_buckets.append([self._rt_buckets[i] if 0 <= i < len(self._rt_buckets) else 0 for i in row])
+            out_rt_values.append([self._rt_values[i] if 0 <= i < len(self._rt_values) else 0.0 for i in row])
 
-        return distances, indices, out_case_ids, out_domain_ids
+        return distances, indices, out_case_ids, out_domain_ids, out_rt_buckets, out_rt_values
 
     # ------------------------------------------------------------------
     # Persistence
@@ -102,6 +108,8 @@ class FAISSIndex:
             self.save_dir / f"{name}_meta.npz",
             ids=np.array(self._ids, dtype=object),
             labels=np.array(self._labels, dtype=np.int32),
+            rt_buckets=np.array(self._rt_buckets, dtype=np.int32),
+            rt_values=np.array(self._rt_values, dtype=np.float32),
         )
         print(f"[FAISS] Saved index → {self.save_dir / name}.faiss")
 
@@ -114,6 +122,8 @@ class FAISSIndex:
         meta = np.load(str(meta_path), allow_pickle=True)
         self._ids = meta["ids"].tolist()
         self._labels = meta["labels"].tolist()
+        self._rt_buckets = meta["rt_buckets"].tolist()
+        self._rt_values = meta["rt_values"].tolist()
         print(f"[FAISS] Loaded index ({self.index.ntotal} vectors) from {idx_path}")
 
 
@@ -125,10 +135,13 @@ class RandomFallbackIndex:
         self._ids: list[str] = []
         self._labels: list[int] = []
 
-    def build(self, embeddings: np.ndarray, case_ids: list, domain_ids: list):
+    def build(self, embeddings: np.ndarray, case_ids: list, domain_ids: list,
+              rt_buckets: Optional[list] = None, rt_values: Optional[list] = None):
         self._embeddings = embeddings
         self._ids = list(case_ids)
         self._labels = list(domain_ids)
+        self._rt_buckets = list(rt_buckets) if rt_buckets is not None else [0] * len(case_ids)
+        self._rt_values = list(rt_values) if rt_values is not None else [0.0] * len(case_ids)
         print(f"[RandomIndex] Stored {len(case_ids)} vectors (FAISS disabled)")
 
     def search(self, query: np.ndarray, top_k: int = 5):
@@ -138,7 +151,9 @@ class RandomFallbackIndex:
         distances = np.ones_like(indices, dtype=np.float32)
         case_ids = [[self._ids[i] for i in row] for row in indices]
         domain_ids = [[self._labels[i] for i in row] for row in indices]
-        return distances, indices, case_ids, domain_ids
+        rt_buckets = [[self._rt_buckets[i] for i in row] for row in indices]
+        rt_values = [[self._rt_values[i] for i in row] for row in indices]
+        return distances, indices, case_ids, domain_ids, rt_buckets, rt_values
 
     def save(self, name="triplet_index"):
         pass  # no-op

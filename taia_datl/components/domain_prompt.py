@@ -1,5 +1,6 @@
 """
-Domain Prompt Generator  [*]
+Domain Prompt Generator
+NOTE! Code left for documentation but this code is no longer used, domain_id features are generated in data_functions/1_data_prep
 
 """
 
