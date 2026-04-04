@@ -44,8 +44,8 @@ class TAIADATLConfig:
     # ------------------------------------------------------------------
     # LoRA / fine-tuning
     # ------------------------------------------------------------------
-    lora_r: int = 8
-    lora_alpha: int = 16
+    lora_r: int = 16
+    lora_alpha: int = 32
     lora_dropout: float = 0.05
     lora_target_modules: List[str] = field(
         default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj",
@@ -64,8 +64,8 @@ class TAIADATLConfig:
     # ------------------------------------------------------------------
     # Domain Prompt Generator
     # ------------------------------------------------------------------
-    domain_prompt_max_tokens: int = 256
-    domain_prompt_temperature: float = 0.3
+    # domain_prompt_max_tokens: int = 256
+    # domain_prompt_temperature: float = 0.3
 
     # ------------------------------------------------------------------
     # FAISS Persistent Triplet Index
@@ -73,7 +73,7 @@ class TAIADATLConfig:
     faiss_embedding_dim: int = 256
     faiss_index_type: str = "flat"  # flat | ivf
     faiss_nprobe: int = 10          # for IVF index
-    faiss_top_k: int = 5            # top-k retrieval for few-shot & fusion
+    faiss_top_k: int = 10           # top-k retrieval for few-shot & fusion
 
     # ------------------------------------------------------------------
     # Triplet Builder
@@ -99,9 +99,12 @@ class TAIADATLConfig:
     datl_batch_size: int = 64
 
     # ------------------------------------------------------------------
-    # Fusion gate
+    # Fusion gate (simple scalar ensemble, no learned parameters)
     # ------------------------------------------------------------------
-    fusion_hidden_dim: int = 64
+    # β weight for the direct TimeHead prediction in the blend:
+    #   rt_final = β × rt_direct + (1 − β) × rt_retrieved
+    # Tune β on the validation set.
+    fusion_beta: float = 0.5
 
     # ------------------------------------------------------------------
     # Prediction heads
@@ -124,6 +127,9 @@ class TAIADATLConfig:
     gradient_clip: float = 1.0
     activity_loss_weight: float = 1.0
     time_loss_weight: float = 1.0
+    # Weight applied to the MSE term in the Stage-2 joint CE + MSE loss:
+    #   total_loss = CE(next_activity) + alpha_mse * MSE(remaining_time)
+    alpha_mse: float = 1.0
 
     # ------------------------------------------------------------------
     # Ablation flags
