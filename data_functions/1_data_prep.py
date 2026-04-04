@@ -352,8 +352,6 @@ class DataCleaner:
 
     def extract_case_dynamics(self, df: pd.DataFrame, time_unit: str = 'days') -> pd.DataFrame:
         """
-        TODO Compute case-level dynamics.
-
         Case dynamics:
             velocity: events_per_time_unit
                 Measures how fast events are being processed in a case.
@@ -427,10 +425,17 @@ class DataCleaner:
         train_df = train_df.copy()
         test_df = test_df.copy()
 
-        train_df['activity_encoded'] = self.label_encoder.fit_transform(train_df['activity'])
-        test_df['activity_encoded'] = self.label_encoder.transform(test_df['activity'])
+        # Reserve index 0 for <UNK> so unseen test activities don't crash
+        activities_with_unk = np.concatenate([['<UNK>'], train_df['activity'].unique()])
+        self.label_encoder.fit(activities_with_unk)
+        train_df['activity_encoded'] = self.label_encoder.transform(train_df['activity'])
 
-        # Save encoder
+        known = set(self.label_encoder.classes_)
+        test_df['activity_encoded'] = self.label_encoder.transform(
+            test_df['activity'].where(test_df['activity'].isin(known), '<UNK>')
+        )
+
+        # Save encoder!!
         encoder_path = output_dir / f"{dataset_name}_label_encoder.pkl"
         joblib.dump(self.label_encoder, encoder_path)
         print(f"  Encoded {len(self.label_encoder.classes_)} unique activities")
@@ -476,11 +481,7 @@ class DataCleaner:
 
 class SyntheticVariationGenerator:
     """
-    Generate synthetic variation datasets for experimental evaluation.
-
-    Assigns domain IDs to cases based on structural properties (entropy,
-    case length, process type) and applies entropy-increasing transformations
-    to create controlled experimental scenarios.
+    Generate synthetic variation datasets for pre-experimental evaluation.
     """
 
     def __init__(self, random_seed: int = 42):
@@ -785,7 +786,7 @@ FEATURE_COLUMNS = [
     # Workload features
     'concurrent_cases', 'workload_ratio',
     # # Case dynamics
-    # 'velocity', 'acceleration',
+    'velocity', 'acceleration',
 ]
 
 
@@ -1128,10 +1129,10 @@ if __name__ == "__main__":
                 traceback.print_exc()
 
 
-        print("PREPROCESSING COMPLETE")
-
-        print(f"\nOutput files:")
-        print(f"  - Raw CSVs:            {RAW_CSV_DIR}/")
-        print(f"  - Cleaned data:        {OUTPUT_DIR}/")
-        print(f"  - Synthetic data:      {SYNTHETIC_DIR}/")
-        print(f"  - Encoders & scalers:  {OUTPUT_DIR}/ and {SYNTHETIC_DIR}/")
+        # print("PREPROCESSING COMPLETE")
+        #
+        # print(f"\nOutput files:")
+        # print(f"  - Raw CSVs:            {RAW_CSV_DIR}/")
+        # print(f"  - Cleaned data:        {OUTPUT_DIR}/")
+        # print(f"  - Synthetic data:      {SYNTHETIC_DIR}/")
+        # print(f"  - Encoders & scalers:  {OUTPUT_DIR}/ and {SYNTHETIC_DIR}/")
