@@ -352,6 +352,8 @@ class DataCleaner:
 
     def extract_case_dynamics(self, df: pd.DataFrame, time_unit: str = 'days') -> pd.DataFrame:
         """
+        TODO Compute case-level dynamics.
+
         Case dynamics:
             velocity: events_per_time_unit
                 Measures how fast events are being processed in a case.
@@ -407,57 +409,63 @@ class DataCleaner:
         print(f"  Extracted case dynamics: velocity (events_per_{time_unit}), acceleration")
         return df
 
-    def encode_activities(self, train_df: pd.DataFrame, test_df: pd.DataFrame,
-                          dataset_name: str, output_dir: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def encode_activities(
+        self,
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+        dataset_name: str,
+        output_dir: Path,
+        val_df: Optional[pd.DataFrame] = None,
+    ) -> Tuple:
         """
         Encode activity labels as integers and save encoder.
 
-        Args:
-            train_df: Training DataFrame
-            test_df: Test DataFrame
-            dataset_name: Name for saving artifacts
-            output_dir: Directory to save encoder
+        Fits on train_df; transforms test_df and optional val_df with the
+        same mapping to prevent leakage.
 
         Returns:
-            Tuple of (train_df, test_df) with activity_encoded column
+            (train_df, test_df) when val_df is None,
+            (train_df, val_df, test_df) when val_df is provided.
         """
         self.label_encoder = LabelEncoder()
         train_df = train_df.copy()
         test_df = test_df.copy()
 
-        # Reserve index 0 for <UNK> so unseen test activities don't crash
-        activities_with_unk = np.concatenate([['<UNK>'], train_df['activity'].unique()])
-        self.label_encoder.fit(activities_with_unk)
-        train_df['activity_encoded'] = self.label_encoder.transform(train_df['activity'])
+        train_df['activity_encoded'] = self.label_encoder.fit_transform(train_df['activity'])
+        test_df['activity_encoded'] = self.label_encoder.transform(test_df['activity'])
 
-        known = set(self.label_encoder.classes_)
-        test_df['activity_encoded'] = self.label_encoder.transform(
-            test_df['activity'].where(test_df['activity'].isin(known), '<UNK>')
-        )
+        if val_df is not None:
+            val_df = val_df.copy()
+            val_df['activity_encoded'] = self.label_encoder.transform(val_df['activity'])
 
-        # Save encoder!!
+        # Save encoder
         encoder_path = output_dir / f"{dataset_name}_label_encoder.pkl"
         joblib.dump(self.label_encoder, encoder_path)
         print(f"  Encoded {len(self.label_encoder.classes_)} unique activities")
         print(f"  Saved encoder: {encoder_path}")
 
+        if val_df is not None:
+            return train_df, val_df, test_df
         return train_df, test_df
 
-    def normalize_features(self, train_df: pd.DataFrame, test_df: pd.DataFrame,
-                           feature_columns: List[str], dataset_name: str,
-                           output_dir: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def normalize_features(
+        self,
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+        feature_columns: List[str],
+        dataset_name: str,
+        output_dir: Path,
+        val_df: Optional[pd.DataFrame] = None,
+    ) -> Tuple:
         """
-        Standard Scaler
+        Z-score normalization fitted on train_df only.
 
-        Args:
-            train_df: Training DataFrame
-            test_df: Test DataFrame
-            feature_columns: List of numerical columns to normalize
-            dataset_name: Name for saving artifacts
-            output_dir: Directory to save scaler
+        Transforms test_df and optional val_df using the training statistics
+        to prevent leakage.
 
         Returns:
-            Tuple of (train_df, test_df) with normalized features
+            (train_df, test_df) when val_df is None,
+            (train_df, val_df, test_df) when val_df is provided.
         """
         train_df = train_df.copy()
         test_df = test_df.copy()
@@ -466,12 +474,18 @@ class DataCleaner:
         train_df[feature_columns] = self.scaler.fit_transform(train_df[feature_columns])
         test_df[feature_columns] = self.scaler.transform(test_df[feature_columns])
 
+        if val_df is not None:
+            val_df = val_df.copy()
+            val_df[feature_columns] = self.scaler.transform(val_df[feature_columns])
+
         # Save scaler
         scaler_path = output_dir / f"{dataset_name}_scaler.pkl"
         joblib.dump(self.scaler, scaler_path)
         print(f"  Z-score normalized {len(feature_columns)} features")
         print(f"  Saved scaler: {scaler_path}")
 
+        if val_df is not None:
+            return train_df, val_df, test_df
         return train_df, test_df
 
 
@@ -481,7 +495,11 @@ class DataCleaner:
 
 class SyntheticVariationGenerator:
     """
-    Generate synthetic variation datasets for pre-experimental evaluation.
+    Generate synthetic variation datasets for experimental evaluation.
+
+    Assigns domain IDs to cases based on structural properties (entropy,
+    case length, process type) and applies entropy-increasing transformations
+    to create controlled experimental scenarios.
     """
 
     def __init__(self, random_seed: int = 42):
@@ -513,6 +531,8 @@ class SyntheticVariationGenerator:
     def assign_domain_ids(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         TODO Assign domain IDs based on case properties. (Fixed vs dynamic with LLM)
+        TODO assign the domain IDs based on the event level (prefix level rather than Case level);
+            add elasped time percentage (case is 30% through)
 
         Domain IDs are assigned based on:
             - Entropy (low, med, high): Shannon entropy of activity distribution
@@ -572,10 +592,10 @@ class SyntheticVariationGenerator:
         type_to_id = {t: i for i, t in enumerate(sorted(process_types))}
         df['domain_id'] = df['process_type'].map(type_to_id)
 
-        print(f"  Assigned domain IDs based on entropy x case_length")
-        print(f"  Entropy levels: {case_stats['entropy_level'].value_counts().to_dict()}")
-        print(f"  Length categories: {case_stats['length_category'].value_counts().to_dict()}")
-        print(f"  Process types: {len(process_types)} unique combinations")
+        # print(f"  Assigned domain IDs based on entropy x case_length")
+        # print(f"  Entropy levels: {case_stats['entropy_level'].value_counts().to_dict()}")
+        # print(f"  Length categories: {case_stats['length_category'].value_counts().to_dict()}")
+        # print(f"  Process types: {len(process_types)} unique combinations")
 
         return df
 
@@ -738,7 +758,6 @@ class EvaluationSplitter:
         """
         Unbiased train-test split (no temporal leakage).
 
-
         Args:
             df: Event log DataFrame with case_id and timestamp
             test_size: Fraction of cases for the test set
@@ -763,6 +782,74 @@ class EvaluationSplitter:
 
         return train_df, test_df
 
+    def temporal_split_three_way(
+        self,
+        df: pd.DataFrame,
+        val_size: float = 0.15,
+        test_size: float = 0.20,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Unbiased 65/15/20 train/val/test split ordered by case start time.
+
+        Cases are sorted chronologically and split at the 65th and 80th
+        percentile timestamps so that:
+          - train  = earliest 65% of cases
+          - val    = next 15% of cases  (hyperparameter tuning)
+          - test   = latest  20% of cases (final held-out evaluation)
+
+        No temporal leakage: val/test cases always start AFTER all train cases.
+
+        Args:
+            df:        Event log DataFrame with case_id and timestamp columns.
+            val_size:  Fraction of cases for the validation set (default 0.15).
+            test_size: Fraction of cases for the test set (default 0.20).
+
+        Returns:
+            Tuple of (train_df, val_df, test_df).
+        """
+        train_frac = 1.0 - val_size - test_size
+        if train_frac <= 0:
+            raise ValueError(
+                f"val_size ({val_size}) + test_size ({test_size}) must be < 1.0"
+            )
+
+        case_start_times = df.groupby('case_id')['timestamp'].min()
+
+        # Quantile boundaries on case start timestamps
+        train_boundary = case_start_times.quantile(train_frac)          # 0.65
+        test_boundary  = case_start_times.quantile(train_frac + val_size)  # 0.80
+
+        train_cases = case_start_times[case_start_times <= train_boundary].index
+        val_cases   = case_start_times[
+            (case_start_times > train_boundary) & (case_start_times <= test_boundary)
+        ].index
+        test_cases  = case_start_times[case_start_times > test_boundary].index
+
+        train_df = df[df['case_id'].isin(train_cases)].copy()
+        val_df   = df[df['case_id'].isin(val_cases)].copy()
+        test_df  = df[df['case_id'].isin(test_cases)].copy()
+
+        total = len(train_cases) + len(val_cases) + len(test_cases)
+        print(f"  Three-way temporal split (no leakage) — "
+              f"train {train_frac:.0%} / val {val_size:.0%} / test {test_size:.0%}:")
+        print(f"    Train: {len(train_cases):5d} cases ({len(train_df):7d} events) "
+              f"[{len(train_cases)/total:.1%}]")
+        print(f"    Val:   {len(val_cases):5d} cases ({len(val_df):7d} events) "
+              f"[{len(val_cases)/total:.1%}]")
+        print(f"    Test:  {len(test_cases):5d} cases ({len(test_df):7d} events) "
+              f"[{len(test_cases)/total:.1%}]")
+        if len(train_df):
+            print(f"    Train range: {train_df['timestamp'].min()} → "
+                  f"{train_df['timestamp'].max()}")
+        if len(val_df):
+            print(f"    Val   range: {val_df['timestamp'].min()} → "
+                  f"{val_df['timestamp'].max()}")
+        if len(test_df):
+            print(f"    Test  range: {test_df['timestamp'].min()} → "
+                  f"{test_df['timestamp'].max()}")
+
+        return train_df, val_df, test_df
+
 
 # =============================================================================
 # PIPELINE CONSTRUCTION
@@ -786,7 +873,7 @@ FEATURE_COLUMNS = [
     # Workload features
     'concurrent_cases', 'workload_ratio',
     # # Case dynamics
-    'velocity', 'acceleration',
+    # 'velocity', 'acceleration',
 ]
 
 
@@ -817,19 +904,22 @@ class EventLogPreprocessor:
         self.feature_columns = FEATURE_COLUMNS
 
     def prepare_data(self, filepath: str, dataset_name: str,
-                     test_size: float = 0.2, min_case_length: int = 2,
+                     test_size: float = 0.20, val_size: float = 0.15,
+                     min_case_length: int = 2,
                      time_unit: str = 'days',
                      generate_synthetic: bool = False,
                      n_synthetic_cases: Optional[int] = None,
                      use_fast_workload: bool = True
-                     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+                     ) -> Tuple:
         """
-        Complete preprocessing pipeline.
+        Complete preprocessing pipeline with 65/15/20 temporal split.
 
         Args:
             filepath: Path to raw XES or CSV file
             dataset_name: Name for saving outputs
-            test_size: Fraction for test set
+            test_size: Fraction for test set (default 0.20)
+            val_size: Fraction for validation set (default 0.15); when > 0 a
+                      three-way 65/15/20 split is performed and val CSV is saved.
             min_case_length: Minimum events per case
             time_unit: Unit for time features ('seconds', 'minutes', 'hours', 'days')
             generate_synthetic: Whether to generate synthetic variation data (Step 3)
@@ -837,7 +927,8 @@ class EventLogPreprocessor:
             use_fast_workload: Use vectorized workload computation (recommended for large datasets)
 
         Returns:
-            Tuple of (train_df, test_df) with all preprocessing applied
+            (train_df, val_df, test_df) when val_size > 0,
+            (train_df, test_df)         when val_size == 0.
         """
         print("\n" + "=" * 80)
         print(f"DATA PREPROCESSING PIPELINE - {dataset_name}")
@@ -899,23 +990,43 @@ class EventLogPreprocessor:
 
         print("\n[Step 4] Evaluation splits...")
 
+        use_three_way = val_size > 0
+
         # --- Cleaned dataset split ---
         print("\n  --- Cleaned dataset ---")
-        train_df, test_df = self.splitter.temporal_split(df, test_size)
+        if use_three_way:
+            train_df, val_df, test_df = self.splitter.temporal_split_three_way(
+                df, val_size=val_size, test_size=test_size
+            )
+        else:
+            train_df, test_df = self.splitter.temporal_split(df, test_size)
+            val_df = None
 
         # --- Synthetic dataset split (if generated) ---
+        synthetic_train_df = synthetic_test_df = None
         if generate_synthetic:
             print("\n  --- Synthetic dataset ---")
-            synthetic_train_df, synthetic_test_df = self.splitter.temporal_split(synthetic_only, test_size)
+            if use_three_way:
+                synthetic_train_df, _, synthetic_test_df = \
+                    self.splitter.temporal_split_three_way(
+                        synthetic_only, val_size=val_size, test_size=test_size
+                    )
+            else:
+                synthetic_train_df, synthetic_test_df = \
+                    self.splitter.temporal_split(synthetic_only, test_size)
 
         # =====================================================================
         # FEATURE EXTRACTION & NORMALIZATION - Cleaned dataset
         # =====================================================================
         print("\n[Features] Extracting features for cleaned dataset...")
-        train_df, test_df = self._extract_and_normalize(
+        results = self._extract_and_normalize(
             train_df, test_df, dataset_name, self.output_dir,
-            time_unit, use_fast_workload
+            time_unit, use_fast_workload, val_df=val_df
         )
+        if use_three_way:
+            train_df, val_df, test_df = results
+        else:
+            train_df, test_df = results
 
         # Store references from cleaned dataset
         self.scaler = self.cleaner.scaler
@@ -932,7 +1043,6 @@ class EventLogPreprocessor:
                 time_unit, use_fast_workload
             )
 
-            # Save synthetic data to separate directory
             synth_train_path = self.synthetic_dir / f"{dataset_name}_synthetic_train.csv"
             synth_test_path = self.synthetic_dir / f"{dataset_name}_synthetic_test.csv"
             synthetic_train_df.to_csv(synth_train_path, index=False)
@@ -945,79 +1055,89 @@ class EventLogPreprocessor:
         # SAVE CLEANED DATA
         # =====================================================================
         train_path = self.output_dir / f"{dataset_name}_train.csv"
-        test_path = self.output_dir / f"{dataset_name}_test.csv"
+        test_path  = self.output_dir / f"{dataset_name}_test.csv"
         train_df.to_csv(train_path, index=False)
         test_df.to_csv(test_path, index=False)
-
         print(f"\nSaved cleaned train data: {train_path}")
         print(f"Saved cleaned test data:  {test_path}")
+
+        if use_three_way and val_df is not None:
+            val_path = self.output_dir / f"{dataset_name}_val.csv"
+            val_df.to_csv(val_path, index=False)
+            print(f"Saved cleaned val data:   {val_path}")
+
         print(f"Feature columns ({len(self.feature_columns)}): {self.feature_columns}")
         print("=" * 80 + "\n")
 
+        if use_three_way:
+            return train_df, val_df, test_df
         return train_df, test_df
 
-    def _extract_and_normalize(self, train_df: pd.DataFrame, test_df: pd.DataFrame,
-                               dataset_name: str, save_dir: Path,
-                               time_unit: str, use_fast_workload: bool
-                               ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _extract_and_normalize(
+        self,
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+        dataset_name: str,
+        save_dir: Path,
+        time_unit: str,
+        use_fast_workload: bool,
+        val_df: Optional[pd.DataFrame] = None,
+    ) -> Tuple:
         """
-        Run feature extraction, encoding, and normalization on a train/test pair.
+        Feature extraction + normalization for a train(/val)/test set.
 
-        Used internally to apply the same pipeline to both the cleaned dataset
-        and the synthetic dataset independently.
-
-        Args:
-            train_df: Training split
-            test_df: Test split
-            dataset_name: Name prefix for saved artifacts
-            save_dir: Directory to save encoder and scaler
-            time_unit: Time unit for feature computation
-            use_fast_workload: Use vectorized workload computation
+        Encoder and scaler are fitted on train_df only, then applied to
+        val_df (when provided) and test_df to prevent leakage.
 
         Returns:
-            Tuple of (train_df, test_df) with features extracted and normalized
+            (train_df, val_df, test_df) when val_df is not None,
+            (train_df, test_df) otherwise.
         """
-        for label, split_df in [("train", train_df), ("test", test_df)]:
+        splits = [("train", train_df)]
+        if val_df is not None:
+            splits.append(("val", val_df))
+        splits.append(("test", test_df))
+
+        processed: dict[str, pd.DataFrame] = {}
+        for label, split_df in splits:
             print(f"\n  --- {label} set ---")
 
-            # Temporal features: accumulated_time, remaining_time, 9 event-level
             split_df = self.cleaner.extract_temporal_features(split_df, time_unit)
-
-            # Activity stats: avg_duration[activity], std_duration[activity]
             split_df = self.cleaner.extract_activity_stats(split_df, time_unit)
-
-            # Time cycle: hour_sin, hour_cos
             split_df = self.cleaner.extract_time_cycle_features(split_df)
-
-            # is_business_hours
             split_df = self.cleaner.extract_business_hours(split_df)
-
-            # Workloads: concurrent_cases, workload_ratio
             if use_fast_workload:
                 split_df = self.cleaner.extract_workload_features_fast(split_df)
             else:
                 split_df = self.cleaner.extract_workload_features(split_df)
-
-            # Case dynamics: velocity, acceleration
             split_df = self.cleaner.extract_case_dynamics(split_df, time_unit)
+            processed[label] = split_df
 
-            if label == "train":
-                train_df = split_df
-            else:
-                test_df = split_df
+        train_df = processed["train"]
+        test_df  = processed["test"]
+        val_df_p = processed.get("val")
 
-        # Encode activities
         print("\n  [Encode] Encoding activities...")
-        train_df, test_df = self.cleaner.encode_activities(
-            train_df, test_df, dataset_name, save_dir
+        enc_result = self.cleaner.encode_activities(
+            train_df, test_df, dataset_name, save_dir, val_df=val_df_p
         )
+        if val_df_p is not None:
+            train_df, val_df_p, test_df = enc_result
+        else:
+            train_df, test_df = enc_result
 
-        # Z-score normalization: better outlier handling
         print("\n  [Normalize] Z-score normalization...")
-        train_df, test_df = self.cleaner.normalize_features(
-            train_df, test_df, self.feature_columns, dataset_name, save_dir
+        norm_result = self.cleaner.normalize_features(
+            train_df, test_df, self.feature_columns, dataset_name, save_dir,
+            val_df=val_df_p
         )
+        if val_df_p is not None:
+            train_df, val_df_p, test_df = norm_result
+        else:
+            train_df, test_df = norm_result
 
+        if val_df_p is not None:
+            return train_df, val_df_p, test_df
         return train_df, test_df
 
     def load_artifacts(self, dataset_name: str) -> Tuple[StandardScaler, LabelEncoder]:
@@ -1114,10 +1234,11 @@ if __name__ == "__main__":
                 print(f"\n{'=' * 80}")
                 print(f"Processing: {dataset_name}")
                 print(f"{'=' * 80}")
-                train_df, test_df = preprocessor.prepare_data(
+                train_df, val_df, test_df = preprocessor.prepare_data(
                     filepath,
                     dataset_name,
-                    test_size=0.2,
+                    test_size=0.20,
+                    val_size=0.15,
                     min_case_length=2,
                     time_unit='days',
                     generate_synthetic=False,
@@ -1129,10 +1250,10 @@ if __name__ == "__main__":
                 traceback.print_exc()
 
 
-        # print("PREPROCESSING COMPLETE")
-        #
-        # print(f"\nOutput files:")
-        # print(f"  - Raw CSVs:            {RAW_CSV_DIR}/")
-        # print(f"  - Cleaned data:        {OUTPUT_DIR}/")
-        # print(f"  - Synthetic data:      {SYNTHETIC_DIR}/")
-        # print(f"  - Encoders & scalers:  {OUTPUT_DIR}/ and {SYNTHETIC_DIR}/")
+        print("PREPROCESSING COMPLETE")
+
+        print(f"\nOutput files:")
+        print(f"  - Raw CSVs:            {RAW_CSV_DIR}/")
+        print(f"  - Cleaned data:        {OUTPUT_DIR}/")
+        print(f"  - Synthetic data:      {SYNTHETIC_DIR}/")
+        print(f"  - Encoders & scalers:  {OUTPUT_DIR}/ and {SYNTHETIC_DIR}/")
