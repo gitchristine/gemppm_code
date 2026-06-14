@@ -14,8 +14,8 @@
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/gitchristine/llm-book-recommender.git
-cd llm-book-recommender
+git clone https://github.com/gitchristine/dtaia_code.git
+cd dtaia_code
 
 # 2. Create and activate a virtual environment
 python -m venv .venv
